@@ -1,13 +1,64 @@
 import telebot
 
-bot = telebot.TeleBot("8238563485:AAHNLTZodPeXcl7YfjZqIqY6BpcPuP3QGXs")
+# 👉 Ҷойи TOKEN-и худро гузор
+TOKEN = "8238563485:AAHNLTZodPeXcl7YfjZqIqY6BpcPuP3QGXs"
+bot = telebot.TeleBot(TOKEN)
 
-# Хомӯш кардани webhook
-bot.remove_webhook()
+# Молҳои намунавӣ
+products = {
+    "1": {"name": "Телефон", "price": 1200},
+    "2": {"name": "Наушник", "price": 150},
+    "3": {"name": "Зарядник", "price": 50},
+}
 
-# Пас аз он polling оғоз шавад
+# Сабади корбарон
+user_carts = {}
+
+def get_cart_text(cart):
+    if not cart:
+        return "🛒 Сабад холӣ аст."
+    text = "🛍 Молҳо дар сабад:\n"
+    total = 0
+    for item in cart:
+        text += f"• {item['name']} - {item['price']} сомонӣ\n"
+        total += item['price']
+    text += f"\n💰 Ҷамъ: {total} сомонӣ"
+    return text
+
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.reply_to(message, "Салом! Бот кор мекунад 🚀")
+    bot.send_message(message.chat.id,
+        "Салом 👋\nИн мағозаи онлайн аст.\nБарои дидани молҳо фармони /shop навис.")
 
-bot.infinity_polling()
+@bot.message_handler(commands=['shop'])
+def show_products(message):
+    text = "📦 Молҳои дастрас:\n"
+    for pid, p in products.items():
+        text += f"{pid}. {p['name']} - {p['price']} сомонӣ\n"
+    text += "\nБарои илова ба сабад, рақами молро навис."
+    bot.send_message(message.chat.id, text)
+
+@bot.message_handler(func=lambda m: m.text in products.keys())
+def add_to_cart(message):
+    user_id = message.chat.id
+    product = products[message.text]
+    user_carts.setdefault(user_id, []).append(product)
+    bot.send_message(user_id, f"✅ {product['name']} ба сабад илова шуд!\nБарои дидани сабад фармони /cart навис.")
+
+@bot.message_handler(commands=['cart'])
+def view_cart(message):
+    cart = user_carts.get(message.chat.id, [])
+    bot.send_message(message.chat.id, get_cart_text(cart))
+
+@bot.message_handler(commands=['buy'])
+def buy(message):
+    cart = user_carts.get(message.chat.id, [])
+    if not cart:
+        bot.send_message(message.chat.id, "🛒 Сабад холӣ аст!")
+    else:
+        total = sum([p['price'] for p in cart])
+        bot.send_message(message.chat.id, f"💸 Ҷамъ: {total} сомонӣ\n\nБарои тасдиқи харид бо админ тамос гиред.")
+        user_carts[message.chat.id] = []
+
+print("Бот кор мекунад...")
+bot.polling(none_stop=True)

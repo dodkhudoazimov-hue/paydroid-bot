@@ -1,0 +1,13 @@
+import telebot
+
+bot = telebot.TeleBot("8238563485:AAHNLTZodPeXcl7YfjZqIqY6BpcPuP3QGXs")
+
+# Хомӯш кардани webhook
+bot.remove_webhook()
+
+# Пас аз он polling оғоз шавад
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.reply_to(message, "Салом! Бот кор мекунад 🚀")
+
+bot.infinity_polling()

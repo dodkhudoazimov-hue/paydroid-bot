@@ -3,12 +3,12 @@ from telebot import types
 import time
 
 # 🔑 Токен ва маълумоти асосӣ
-bot = telebot.TeleBot("8238563485:AAHNLTZodPeXcl7YfjZqIqY6BpcPuP3QGXs")
+bot = telebot.TeleBot("Т8238563485:AAHNLTZodPeXcl7YfjZqIqY6BpcPuP3QGXs")
 ADMIN_ID = 8377215874
 CHANNEL_USERNAME = "@Номи_Канали_Шумо"  # мисол: @MarzChannel
 
 # 📋 Маълумотҳо
-kalimahoi_mamnue = ["керм", "кунт", "кс", "далбаёб"]
+kalimahoi_mamnue = ["даҳшат", "ҳайвон", "бефаросат", "девона"]
 hushdor = {}
 last_message_time = {}
 

@@ -1,55 +1,115 @@
 import telebot
+from telebot import types
 import time
 
-# 🔑 Токени худро гузор
+# 🔑 Токен ва маълумоти асосӣ
 bot = telebot.TeleBot("8238563485:AAHNLTZodPeXcl7YfjZqIqY6BpcPuP3QGXs")
+ADMIN_ID = 8377215874
+CHANNEL_USERNAME = "@Номи_Канали_Шумо"  # мисол: @MarzChannel
 
-# 📜 Калимаҳои манъшуда
-kalimahoi_mamnue = ["дашном", "ҳайвон", "бефаросат", "девона"]
-
-# 📦 Ҳисобкунии ҳушдорҳо ва паёмҳо
+# 📋 Маълумотҳо
+kalimahoi_mamnue = ["керм", "кунт", "кс", "далбаёб"]
 hushdor = {}
 last_message_time = {}
 
-# 📋 Қоидаҳои гурӯҳ
 rules_text = """
 📜 ҚОИДАҲОИ ГУРӮҲ:
 1️⃣ Дашном ва беҳурматӣ манъ аст ❌  
-2️⃣ Спам, реклама ва линкҳои беруна манъ аст 📵  
+2️⃣ Спам ва реклама манъ аст 📵  
 3️⃣ Ба ҳамдигар эҳтиром гузоред 🙏  
-4️⃣ 3 маротиба қоидавайронкунӣ = БАН 🚫
+4️⃣ Барои навиштан аввал узви канал шавед!
 """
 
-# 👋 Хушомадгӯӣ
+# 👋 Хушомадгӯӣ ба аъзоҳои нав
 @bot.message_handler(content_types=['new_chat_members'])
 def welcome(message):
     for user in message.new_chat_members:
-        bot.send_message(message.chat.id, f"🎉 Салом @{user.username or user.first_name}! Хуш омадӣ ба гурӯҳ!")
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("▶ Ба канал гузаштан", url=f"https://t.me/{CHANNEL_USERNAME.replace('@','')}"))
+        bot.send_message(
+            message.chat.id,
+            f"🎉 Салом @{user.username or user.first_name}!\nБарои иштирок дар сӯҳбат аввал ба канали мо обуна шавед.",
+            reply_markup=markup
+        )
 
-# 🧠 Функсия барои донистани админ
+# 🧠 Санҷиши админ
 def is_admin(chat_id, user_id):
+    if user_id == ADMIN_ID:
+        return True
     try:
         member = bot.get_chat_member(chat_id, user_id)
         return member.status in ["administrator", "creator"]
     except:
         return False
 
-# 💬 Филтр ва ҷавоб
-@bot.message_handler(func=lambda message: True, content_types=['text'])
-def main(message):
+# 🔍 Санҷиши узвият дар канал
+def is_subscribed(user_id):
+    try:
+        member = bot.get_chat_member(CHANNEL_USERNAME, user_id)
+        return member.status in ["member", "administrator", "creator"]
+    except:
+        return False
+
+# ▶️ Фармони /start бо тугмаҳо
+@bot.message_handler(commands=['start'])
+def start(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    btn1 = types.KeyboardButton("🧾 Қоидаҳо")
+    btn2 = types.KeyboardButton("📡 Пайваст кардани канал")
+    btn3 = types.KeyboardButton("ℹ️ Дар бораи бот")
+    markup.add(btn1, btn2, btn3)
+
+    if message.from_user.id == ADMIN_ID:
+        btn4 = types.KeyboardButton("👮 Профили админ")
+        markup.add(btn4)
+
+    bot.send_message(
+        message.chat.id,
+        f"Салом {message.from_user.first_name}! 🤖\nМан МарзБот ҳастам — муҳофизи гурӯҳ ва ёвари ту.",
+        reply_markup=markup
+    )
+
+# 📱 Идоракунии тугмаҳо
+@bot.message_handler(func=lambda m: True)
+def handle_buttons(message):
+    text = message.text.lower()
     chat_id = message.chat.id
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
-    text = message.text.lower()
 
-    # 🧠 Муҳофизати спам
-    now = time.time()
-    if user_id in last_message_time:
-        diff = now - last_message_time[user_id]
-        if diff < 1.2:
+    # 🧭 Дар чати шахсӣ
+    if message.chat.type == "private":
+        if "қоида" in text:
+            bot.send_message(chat_id, rules_text)
+        elif "дар бораи" in text:
+            bot.send_message(chat_id, "🤖 Ман МарзБот ҳастам!\nМан гурӯҳҳоро муҳофизат мекунам ва бо одамон сӯҳбат мекунам.")
+        elif "пайваст" in text:
+            bot.send_message(chat_id, "📡 Барои пайваст кардани канал:\n1️⃣ Канали худро кушо\n2️⃣ Ботро админ гузор\n3️⃣ Ба ман номи канали худро бифирист (@examplechannel)\nБаъд ман онро барои форс-сабскрайб истифода мебарам.")
+        elif "админ" in text and user_id == ADMIN_ID:
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("👤 Ба профили админ гузаштан", url=f"https://t.me/{username}"))
+            bot.send_message(chat_id, f"👮 Профили админ:\nID: {ADMIN_ID}\nНом: {username}", reply_markup=markup)
+        else:
+            bot.send_message(chat_id, "Ин тугма амал надорад 😅")
+        return
+
+    # 💬 Дар гурӯҳ — филтрҳо
+    if not is_subscribed(user_id):
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("▶ Ба канал гузаштан", url=f"https://t.me/{CHANNEL_USERNAME.replace('@','')}"))
+        bot.reply_to(message, "⛔ Барои навиштан аввал ба канали мо обуна шавед!", reply_markup=markup)
+        try:
             bot.delete_message(chat_id, message.message_id)
-            bot.send_message(chat_id, f"🚨 @{username}, илтимос спам накун!")
-            return
+        except:
+            pass
+        return
+
+    # 🧠 Муҳофизат аз спам
+    now = time.time()
+    if user_id in last_message_time and now - last_message_time[user_id] < 1.5:
+        bot.delete_message(chat_id, message.message_id)
+        bot.send_message(chat_id, f"🚨 @{username}, илтимос спам накун!")
+        return
     last_message_time[user_id] = now
 
     # 🚫 Калимаҳои манъшуда
@@ -59,20 +119,20 @@ def main(message):
             hushdor[user_id] = hushdor.get(user_id, 0) + 1
 
             if hushdor[user_id] == 1:
-                bot.send_message(chat_id, f"⚠️ @{username}, ин калима манъ аст! (ҳушдори {hushdor[user_id]})")
+                bot.send_message(chat_id, f"⚠️ @{username}, ин калима манъ аст! (ҳушдори аввал)")
             elif hushdor[user_id] == 2:
-                bot.send_message(chat_id, f"🚫 @{username}, боз як бор такрор шуд. Эҳтиёт кун!")
+                bot.send_message(chat_id, f"🚫 @{username}, боз як бор такрор шуд!")
             elif hushdor[user_id] >= 3:
-                bot.send_message(chat_id, f"⛔ @{username} бан шуд барои вайрон кардани қоидаҳо!")
+                bot.send_message(chat_id, f"⛔ @{username} бан шуд барои беҳурматӣ!")
                 try:
                     bot.ban_chat_member(chat_id, user_id)
-                except Exception:
+                except:
                     bot.send_message(chat_id, "Ман ҳуқуқи бан надорам 😅")
             return
 
     # 💬 Ҷавобҳои дӯстона
     if "салом" in text:
-        bot.reply_to(message, "Салом! 😊 Хуш омадӣ!")
+        bot.reply_to(message, "Салом! 😊")
     elif "чӣ хабар" in text:
         bot.reply_to(message, "Ҳамааш хуб, ту чӣ хабар?")
     elif "номи ту" in text:
@@ -80,56 +140,6 @@ def main(message):
     elif "чӣ мекунӣ" in text:
         bot.reply_to(message, "Гурӯҳро тоза нигоҳ медорам ва бо одамон сӯҳбат мекунам 😎")
 
-# 🧾 /rules фармон
-@bot.message_handler(commands=['rules'])
-def rules(message):
-    bot.reply_to(message, rules_text)
-
-# 🧠 /warnlist фармон (танҳо админ)
-@bot.message_handler(commands=['warnlist'])
-def warnlist(message):
-    if not is_admin(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "🚫 Танҳо админҳо метавонанд ин фармонро истифода баранд!")
-        return
-
-    if not hushdor:
-        bot.reply_to(message, "✅ Ҳоло касе ҳушдор нагирифтааст.")
-        return
-
-    msg = "⚠️ Рӯйхати ҳушдорҳо:\n"
-    for uid, warn_count in hushdor.items():
-        try:
-            user = bot.get_chat_member(message.chat.id, uid).user
-            name = user.username or user.first_name
-            msg += f"• {name} — {warn_count} ҳушдор\n"
-        except:
-            pass
-    bot.reply_to(message, msg)
-
-# 🚪 /unban фармон (танҳо админ)
-@bot.message_handler(commands=['unban'])
-def unban_user(message):
-    if not is_admin(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "🚫 Танҳо админ метавонад банро бардорад!")
-        return
-
-    try:
-        parts = message.text.split()
-        if len(parts) < 2:
-            bot.reply_to(message, "Истифода: `/unban <user_id>`", parse_mode="Markdown")
-            return
-
-        user_id = int(parts[1])
-        bot.unban_chat_member(message.chat.id, user_id)
-        bot.reply_to(message, f"✅ Корбар бо ID `{user_id}` кушода шуд.", parse_mode="Markdown")
-    except Exception as e:
-        bot.reply_to(message, f"Хато дар фармон: {e}")
-
-# ℹ️ /info фармон
-@bot.message_handler(commands=['info'])
-def info(message):
-    bot.reply_to(message, "🤖 Ман МарзБот ҳастам!\nМуҳофизи гурӯҳ ва сӯҳбаткунандаи дӯстона 😄")
-
 # ▶️ Оғози бот
-print("🤖 МарзБот бо фармонҳо фаъол шуд...")
+print("🤖 МарзБот бо тугмаҳо ва системаи канал фаъол шуд...")
 bot.infinity_polling()

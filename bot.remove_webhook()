@@ -1,143 +1,135 @@
 import telebot
-from telebot import types
+import time
 
-# 🔑 TOKEN-и худро гузор
-TOKEN = "8238563485:AAHNLTZodPeXcl7YfjZqIqY6BpcPuP3QGXs"
-bot = telebot.TeleBot(TOKEN)
+# 🔑 Токени худро гузор
+bot = telebot.TeleBot("8238563485:AAHNLTZodPeXcl7YfjZqIqY6BpcPuP3QGXs")
 
-# 👑 ID ё username-и админ
-ADMIN_USERNAME = "@marz_x5"
+# 📜 Калимаҳои манъшуда
+kalimahoi_mamnue = ["даҳшат", "ҳайвон", "бефаросат", "девона"]
 
-# 📦 Молҳо
-products = {
-    1: {"name": "Телефон", "price": 1200},
-    2: {"name": "Наушник", "price": 150},
-    3: {"name": "Зарядник", "price": 50},
-}
+# 📦 Ҳисобкунии ҳушдорҳо ва паёмҳо
+hushdor = {}
+last_message_time = {}
 
-# 🛒 Сабадҳои корбарон
-user_carts = {}
-# 📬 Фармоишҳои нав барои админ
-orders = []
+# 📋 Қоидаҳои гурӯҳ
+rules_text = """
+📜 ҚОИДАҲОИ ГУРӮҲ:
+1️⃣ Дашном ва беҳурматӣ манъ аст ❌  
+2️⃣ Спам, реклама ва линкҳои беруна манъ аст 📵  
+3️⃣ Ба ҳамдигар эҳтиром гузоред 🙏  
+4️⃣ 3 маротиба қоидавайронкунӣ = БАН 🚫
+"""
 
-# ----------------------------------------------------------
-# Функсияҳои ёрирасон
-# ----------------------------------------------------------
-def make_main_menu():
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.add(types.InlineKeyboardButton("🛍 Дидани молҳо", callback_data="show_products"))
-    keyboard.add(types.InlineKeyboardButton("🛒 Дидани сабад", callback_data="view_cart"))
-    keyboard.add(types.InlineKeyboardButton("👑 Бахши админ", callback_data="admin"))
-    return keyboard
+# 👋 Хушомадгӯӣ
+@bot.message_handler(content_types=['new_chat_members'])
+def welcome(message):
+    for user in message.new_chat_members:
+        bot.send_message(message.chat.id, f"🎉 Салом @{user.username or user.first_name}! Хуш омадӣ ба гурӯҳ!")
 
-def make_products_menu():
-    keyboard = types.InlineKeyboardMarkup()
-    for pid, p in products.items():
-        keyboard.add(types.InlineKeyboardButton(f"{p['name']} - {p['price']} сомонӣ", callback_data=f"add_{pid}"))
-    keyboard.add(types.InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main"))
-    return keyboard
+# 🧠 Функсия барои донистани админ
+def is_admin(chat_id, user_id):
+    try:
+        member = bot.get_chat_member(chat_id, user_id)
+        return member.status in ["administrator", "creator"]
+    except:
+        return False
 
-def make_cart_text(user_id):
-    cart = user_carts.get(user_id, [])
-    if not cart:
-        return "🛒 Сабад холӣ аст."
-    text = "📦 Молҳо дар сабад:\n"
-    total = 0
-    for p in cart:
-        text += f"• {p['name']} - {p['price']} сомонӣ\n"
-        total += p['price']
-    text += f"\n💰 Ҷамъ: {total} сомонӣ"
-    return text
+# 💬 Филтр ва ҷавоб
+@bot.message_handler(func=lambda message: True, content_types=['text'])
+def main(message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    username = message.from_user.username or message.from_user.first_name
+    text = message.text.lower()
 
-# ----------------------------------------------------------
-# Командаҳо
-# ----------------------------------------------------------
-@bot.message_handler(commands=['start'])
-def start(message):
-    bot.send_message(
-        message.chat.id,
-        f"Салом, {message.from_user.first_name}! 👋\nИн мағозаи онлайн аст.\nМенюро интихоб кун:",
-        reply_markup=make_main_menu()
-    )
+    # 🧠 Муҳофизати спам
+    now = time.time()
+    if user_id in last_message_time:
+        diff = now - last_message_time[user_id]
+        if diff < 1.2:
+            bot.delete_message(chat_id, message.message_id)
+            bot.send_message(chat_id, f"🚨 @{username}, илтимос спам накун!")
+            return
+    last_message_time[user_id] = now
 
-# ----------------------------------------------------------
-# Callback Query
-# ----------------------------------------------------------
-@bot.callback_query_handler(func=lambda call: True)
-def callback(call):
-    user_id = call.message.chat.id
+    # 🚫 Калимаҳои манъшуда
+    for kal in kalimahoi_mamnue:
+        if kal in text:
+            bot.delete_message(chat_id, message.message_id)
+            hushdor[user_id] = hushdor.get(user_id, 0) + 1
 
-    # Дидани молҳо
-    if call.data == "show_products":
-        bot.edit_message_text(
-            "📦 Молҳои дастрас:",
-            user_id,
-            call.message.message_id,
-            reply_markup=make_products_menu()
-        )
-
-    # Бозгашт ба менюи асосӣ
-    elif call.data == "back_main":
-        bot.edit_message_text(
-            "Менюи асосӣ:",
-            user_id,
-            call.message.message_id,
-            reply_markup=make_main_menu()
-        )
-
-    # Дидани сабад
-    elif call.data == "view_cart":
-        cart_text = make_cart_text(user_id)
-        keyboard = types.InlineKeyboardMarkup()
-        keyboard.add(types.InlineKeyboardButton("🛍 Харид кардан", callback_data="buy"))
-        keyboard.add(types.InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main"))
-        bot.edit_message_text(cart_text, user_id, call.message.message_id, reply_markup=keyboard)
-
-    # Илова ба сабад
-    elif call.data.startswith("add_"):
-        pid = int(call.data.split("_")[1])
-        product = products[pid]
-        user_carts.setdefault(user_id, []).append(product)
-        bot.answer_callback_query(call.id, f"✅ {product['name']} ба сабад илова шуд!")
-
-    # Харид кардан
-    elif call.data == "buy":
-        cart = user_carts.get(user_id, [])
-        if not cart:
-            bot.answer_callback_query(call.id, "🛒 Сабад холӣ аст!")
+            if hushdor[user_id] == 1:
+                bot.send_message(chat_id, f"⚠️ @{username}, ин калима манъ аст! (ҳушдори {hushdor[user_id]})")
+            elif hushdor[user_id] == 2:
+                bot.send_message(chat_id, f"🚫 @{username}, боз як бор такрор шуд. Эҳтиёт кун!")
+            elif hushdor[user_id] >= 3:
+                bot.send_message(chat_id, f"⛔ @{username} бан шуд барои вайрон кардани қоидаҳо!")
+                try:
+                    bot.ban_chat_member(chat_id, user_id)
+                except Exception:
+                    bot.send_message(chat_id, "Ман ҳуқуқи бан надорам 😅")
             return
 
-        total = sum([p["price"] for p in cart])
-        order_text = f"🧾 Фармоиши нав аз @{call.from_user.username or call.from_user.first_name}\n\n"
-        for p in cart:
-            order_text += f"• {p['name']} - {p['price']} сомонӣ\n"
-        order_text += f"\n💰 Ҷамъ: {total} сомонӣ"
-        orders.append(order_text)
+    # 💬 Ҷавобҳои дӯстона
+    if "салом" in text:
+        bot.reply_to(message, "Салом! 😊 Хуш омадӣ!")
+    elif "чӣ хабар" in text:
+        bot.reply_to(message, "Ҳамааш хуб, ту чӣ хабар?")
+    elif "номи ту" in text:
+        bot.reply_to(message, "Ман МарзБот 🤖 ҳастам — муҳофизи гурӯҳ!")
+    elif "чӣ мекунӣ" in text:
+        bot.reply_to(message, "Гурӯҳро тоза нигоҳ медорам ва бо одамон сӯҳбат мекунам 😎")
 
-        # Тоза кардани сабад
-        user_carts[user_id] = []
+# 🧾 /rules фармон
+@bot.message_handler(commands=['rules'])
+def rules(message):
+    bot.reply_to(message, rules_text)
 
-        bot.send_message(user_id, "✅ Фармоиши шумо қабул шуд! Админ бо шумо тамос мегирад.")
-        bot.send_message(user_id, f"👑 Барои тамос: {ADMIN_USERNAME}")
-        bot.send_message(user_id, "⬅️ Баргашт ба меню:", reply_markup=make_main_menu())
+# 🧠 /warnlist фармон (танҳо админ)
+@bot.message_handler(commands=['warnlist'])
+def warnlist(message):
+    if not is_admin(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "🚫 Танҳо админҳо метавонанд ин фармонро истифода баранд!")
+        return
 
-        # Ба админ фармоиш фиристодан
-        bot.send_message(user_id, "📨 Фармоиш ба админ фиристода шуд.")
-        bot.send_message(call.message.chat.id, "✅ Фармоиш сабт шуд.")
-        bot.send_message(user_id, "Бозгашт ба меню:", reply_markup=make_main_menu())
+    if not hushdor:
+        bot.reply_to(message, "✅ Ҳоло касе ҳушдор нагирифтааст.")
+        return
 
-    # Бахши админ
-    elif call.data == "admin":
-        if call.from_user.username == ADMIN_USERNAME.replace("@", ""):
-            if not orders:
-                bot.edit_message_text("📭 Фармоишҳои нав вуҷуд надоранд.", user_id, call.message.message_id,
-                                      reply_markup=make_main_menu())
-            else:
-                text = "\n\n".join(orders)
-                bot.edit_message_text(f"📦 Фармоишҳои нав:\n\n{text}", user_id, call.message.message_id,
-                                      reply_markup=make_main_menu())
-        else:
-            bot.answer_callback_query(call.id, "🚫 Танҳо админ дастрасӣ дорад!")
+    msg = "⚠️ Рӯйхати ҳушдорҳо:\n"
+    for uid, warn_count in hushdor.items():
+        try:
+            user = bot.get_chat_member(message.chat.id, uid).user
+            name = user.username or user.first_name
+            msg += f"• {name} — {warn_count} ҳушдор\n"
+        except:
+            pass
+    bot.reply_to(message, msg)
 
-print("✅ Бот кор мекунад...")
-bot.polling(none_stop=True)
+# 🚪 /unban фармон (танҳо админ)
+@bot.message_handler(commands=['unban'])
+def unban_user(message):
+    if not is_admin(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "🚫 Танҳо админ метавонад банро бардорад!")
+        return
+
+    try:
+        parts = message.text.split()
+        if len(parts) < 2:
+            bot.reply_to(message, "Истифода: `/unban <user_id>`", parse_mode="Markdown")
+            return
+
+        user_id = int(parts[1])
+        bot.unban_chat_member(message.chat.id, user_id)
+        bot.reply_to(message, f"✅ Корбар бо ID `{user_id}` кушода шуд.", parse_mode="Markdown")
+    except Exception as e:
+        bot.reply_to(message, f"Хато дар фармон: {e}")
+
+# ℹ️ /info фармон
+@bot.message_handler(commands=['info'])
+def info(message):
+    bot.reply_to(message, "🤖 Ман МарзБот ҳастам!\nМуҳофизи гурӯҳ ва сӯҳбаткунандаи дӯстона 😄")
+
+# ▶️ Оғози бот
+print("🤖 МарзБот бо фармонҳо фаъол шуд...")
+bot.infinity_polling()

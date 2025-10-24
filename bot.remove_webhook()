@@ -1,60 +1,132 @@
-import telebot
-import requests
-import os
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes
 
-# 🔹 Токенҳои худро гузор:
-BOT_TOKEN = "8238563485:AAHNLTZodPeXcl7YfjZqIqY6BpcPuP3QGXs"
-AUDD_TOKEN = "67bb96ec3f8a31cf3b9a73a4279fbb99"
+# Ҳолати бозӣ барои ҳар chat
+games = {}
 
-bot = telebot.TeleBot(BOT_TOKEN)
+# Функсия барои сохтани ҷадвал
+def create_board(size):
+    return [[" " for _ in range(size)] for _ in range(size)]
 
-@bot.message_handler(commands=['start'])
-def start(message):
-    bot.reply_to(message,
-        "Салом 🎧\nМан бот ҳастам, ки мусиқиро мешиносам!\n"
-        "Фақат як аудио ё voice фирист, ман номи сурудро меёбам 🎵"
-    )
+# Функсия барои намоиши ҷадвал бо emoji
+def render_board(board):
+    symbol_map = {"X": "❌", "O": "⭕", " ": "⬜"}
+    return "\n".join("".join(symbol_map[cell] for cell in row) for row in board)
 
-@bot.message_handler(content_types=['voice', 'audio'])
-def recognize_music(message):
-    msg = bot.reply_to(message, "⏳ Лутфан интизор шавед, сурудро мешиносам...")
+# Функсияи тугмаҳои ҷадвал
+def board_buttons(board, chat_id):
+    buttons = []
+    for i, row in enumerate(board):
+        btn_row = []
+        for j, cell in enumerate(row):
+            if cell == " ":
+                btn_row.append(InlineKeyboardButton("⬜", callback_data=f"{chat_id}:{i},{j}"))
+            else:
+                btn_row.append(InlineKeyboardButton(cell, callback_data="ignored"))
+        buttons.append(btn_row)
+    return InlineKeyboardMarkup(buttons)
 
-    try:
-        # ⬇️ Гирифтани файли аудио аз Telegram
-        file_info = bot.get_file(message.voice.file_id if message.voice else message.audio.file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
+# Тугмаи профили админ
+def admin_button():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("Профили админ", url="tg://user?id=8377215874")]])
 
-        temp_path = "temp_audio.ogg"
-        with open(temp_path, "wb") as f:
-            f.write(downloaded_file)
+# Тугмаи "Илова ба гурӯҳ" (корбар интихоб мекунад)
+def add_group_button():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Илова ба гурӯҳ", url="https://t.me/YourBotUsername?startgroup=true")]
+    ])
 
-        # ⬆️ Фиристодан ба API-и AudD
-        url = "https://api.audd.io/"
-        data = {
-            'api_token': AUDD_TOKEN,
-            'return': 'apple_music,spotify',
-        }
-        files = {
-            'file': open(temp_path, 'rb')
-        }
-        response = requests.post(url, data=data, files=files)
-        result = response.json()
+# Тафтиши бурд
+def check_win(board, player):
+    size = len(board)
+    # Сатру сутун
+    for i in range(size):
+        if all(board[i][j] == player for j in range(size)) or all(board[j][i] == player for j in range(size)):
+            return True
+    # Диагонал
+    if all(board[i][i] == player for i in range(size)) or all(board[i][size-1-i] == player for i in range(size)):
+        return True
+    return False
 
-        os.remove(temp_path)
+# Оғози бозӣ бо интихоби размер
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("3x3", callback_data="size:3")],
+        [InlineKeyboardButton("4x4", callback_data="size:4")],
+        [InlineKeyboardButton("5x5", callback_data="size:5")],
+        [InlineKeyboardButton("Профили админ", url="tg://user?id=8377215874")],
+        [InlineKeyboardButton("Илова ба гурӯҳ", url="https://t.me/YourBotUsername?startgroup=true")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Салом! Размери бозиро интихоб кунед:", reply_markup=reply_markup)
 
-        if result.get("result"):
-            song = result["result"]
-            title = song.get("title", "Номаълум")
-            artist = song.get("artist", "Номаълум")
-            link = song.get("song_link", "Линк нест")
+# Оғози бозӣ пас аз интихоб
+async def select_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    if not data.startswith("size:"):
+        return
+    size = int(data.split(":")[1])
+    chat_id = query.message.chat.id
+    board = create_board(size)
+    games[chat_id] = {"board": board, "turn": "X"}
+    await query.edit_message_text(f"Бозӣ оғоз шуд! Размер: {size}x{size}\nНавбати ❌",
+                                  reply_markup=board_buttons(board, chat_id))
 
-            text = f"🎵 <b>{title}</b>\n👤 {artist}\n🔗 {link}"
-            bot.edit_message_text(text, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
-        else:
-            bot.edit_message_text("😔 Маълуми суруд ёфт нашуд.", chat_id=message.chat.id, message_id=msg.message_id)
+# Callback барои ҳаракатҳо
+async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    if data == "ignored":
+        return
+    if data.startswith("size:"):
+        await select_size(update, context)
+        return
 
-    except Exception as e:
-        bot.edit_message_text(f"❌ Хатогӣ: {e}", chat_id=message.chat.id, message_id=msg.message_id)
+    chat_id_str, pos = data.split(":")
+    chat_id = int(chat_id_str)
+    i, j = map(int, pos.split(","))
 
-print("✅ Бот фаъол шуд. Барои қатъ кардан CTRL+C")
-bot.polling()
+    game = games.get(chat_id)
+    if not game:
+        await query.edit_message_text("Бозӣ ёфт нашуд. /start бозӣ кунед.")
+        return
+
+    board = game["board"]
+    turn = game["turn"]
+    if board[i][j] != " ":
+        return
+
+    board[i][j] = turn
+
+    # Тафтиши бурд
+    if check_win(board, turn):
+        await query.edit_message_text(
+            f"{render_board(board)}\n{turn} бурд! 🎉",
+            reply_markup=admin_button()
+        )
+        del games[chat_id]
+        return
+
+    # Тафтиши баробарӣ
+    if all(cell != " " for row in board for cell in row):
+        await query.edit_message_text(f"{render_board(board)}\nНатоиҷа баробар! 🤝",
+                                      reply_markup=admin_button())
+        del games[chat_id]
+        return
+
+    # Навбат
+    game["turn"] = "O" if turn == "X" else "X"
+    await query.edit_message_text(f"{render_board(board)}\nНавбати {game['turn']}",
+                                  reply_markup=board_buttons(board, chat_id))
+
+# Запуск
+if __name__ == "__main__":
+    TOKEN = "8238563485:AAHNLTZodPeXcl7YfjZqIqY6BpcPuP3QGXs"
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_click))
+    print("Бот кор мекунад...")
+    app.run_polling()

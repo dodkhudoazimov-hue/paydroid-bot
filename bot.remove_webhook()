@@ -4,16 +4,16 @@ from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandle
 # Ҳолати бозӣ барои ҳар chat
 games = {}
 
-# Функсия барои сохтани ҷадвал
+# Сохтани ҷадвал
 def create_board(size):
     return [[" " for _ in range(size)] for _ in range(size)]
 
-# Функсия барои намоиши ҷадвал бо emoji
+# Намоиши ҷадвал бо emoji
 def render_board(board):
     symbol_map = {"X": "❌", "O": "⭕", " ": "⬜"}
     return "\n".join("".join(symbol_map[cell] for cell in row) for row in board)
 
-# Функсияи тугмаҳои ҷадвал
+# Тугмаҳои inline барои ҷадвал
 def board_buttons(board, chat_id):
     buttons = []
     for i, row in enumerate(board):
@@ -30,59 +30,36 @@ def board_buttons(board, chat_id):
 def admin_button():
     return InlineKeyboardMarkup([[InlineKeyboardButton("Профили админ", url="tg://user?id=8377215874")]])
 
-# Тугмаи "Илова ба гурӯҳ" (корбар интихоб мекунад)
-def add_group_button():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Илова ба гурӯҳ", url="https://t.me/YourBotUsername?startgroup=true")]
-    ])
-
 # Тафтиши бурд
 def check_win(board, player):
     size = len(board)
-    # Сатру сутун
     for i in range(size):
         if all(board[i][j] == player for j in range(size)) or all(board[j][i] == player for j in range(size)):
             return True
-    # Диагонал
     if all(board[i][i] == player for i in range(size)) or all(board[i][size-1-i] == player for i in range(size)):
         return True
     return False
 
-# Оғози бозӣ бо интихоби размер
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("3x3", callback_data="size:3")],
-        [InlineKeyboardButton("4x4", callback_data="size:4")],
-        [InlineKeyboardButton("5x5", callback_data="size:5")],
-        [InlineKeyboardButton("Профили админ", url="tg://user?id=8377215874")],
-        [InlineKeyboardButton("Илова ба гурӯҳ", url="https://t.me/YourBotUsername?startgroup=true")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Салом! Размери бозиро интихоб кунед:", reply_markup=reply_markup)
+# Оғози бозӣ
+async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    msg = await update.message.reply_text(
+        "Бозӣ оғоз шуд! Ду бозингар лозим аст. Дар ҷавоб навбати худро интихоб кунед (X ва O)."
+    )
+    # Ҳолати аввал, ҳеҷ бозингар муайян нашудааст
+    games[chat_id] = {
+        "board": create_board(3),
+        "turn": "X",
+        "players": {},  # user_id: symbol
+        "message_id": msg.message_id
+    }
 
-# Оғози бозӣ пас аз интихоб
-async def select_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    if not data.startswith("size:"):
-        return
-    size = int(data.split(":")[1])
-    chat_id = query.message.chat.id
-    board = create_board(size)
-    games[chat_id] = {"board": board, "turn": "X"}
-    await query.edit_message_text(f"Бозӣ оғоз шуд! Размер: {size}x{size}\nНавбати ❌",
-                                  reply_markup=board_buttons(board, chat_id))
-
-# Callback барои ҳаракатҳо
+# Callback барои click
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
     if data == "ignored":
-        return
-    if data.startswith("size:"):
-        await select_size(update, context)
         return
 
     chat_id_str, pos = data.split(":")
@@ -91,11 +68,27 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     game = games.get(chat_id)
     if not game:
-        await query.edit_message_text("Бозӣ ёфт нашуд. /start бозӣ кунед.")
+        await query.edit_message_text("Бозӣ ёфт нашуд. /game бозӣ кунед.")
+        return
+
+    user_id = query.from_user.id
+    # Таъини бозингар
+    if user_id not in game["players"]:
+        if len(game["players"]) >= 2:
+            await query.answer("Бозӣ барои ду бозингар аст!")
+            return
+        # Аввалин шахс X, дуюм O
+        symbol = "X" if "X" not in game["players"].values() else "O"
+        game["players"][user_id] = symbol
+
+    # Навбати дуруст
+    if game["players"][user_id] != game["turn"]:
+        await query.answer("Навбати шумо нест!")
         return
 
     board = game["board"]
     turn = game["turn"]
+
     if board[i][j] != " ":
         return
 
@@ -122,11 +115,18 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(f"{render_board(board)}\nНавбати {game['turn']}",
                                   reply_markup=board_buttons(board, chat_id))
 
+# Команда барои оғоз
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Салом! /game барои оғоз кардани бозӣ дар гуруҳ"
+    )
+
 # Запуск
 if __name__ == "__main__":
     TOKEN = "8238563485:AAHNLTZodPeXcl7YfjZqIqY6BpcPuP3QGXs"
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("game", start_game))
     app.add_handler(CallbackQueryHandler(button_click))
     print("Бот кор мекунад...")
     app.run_polling()

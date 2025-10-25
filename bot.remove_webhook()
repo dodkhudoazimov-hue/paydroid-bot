@@ -1,132 +1,109 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes
+import telebot
+import os
+import subprocess
+import requests
+import yt_dlp
+import tempfile
 
-# Ҳолати бозӣ барои ҳар chat
-games = {}
+# >>>>>> ТУ ДАР ИН ҶО TOKEN-И ХУДРО ГУЗОР <<<<<<
+BOT_TOKEN = "8238563485:AAHNLTZodPeXcl7YfjZqIqY6BpcPuP3QGXs"
+AUDD_API_TOKEN = "67bb96ec3f8a31cf3b9a73a4279fbb99"
 
-# Сохтани ҷадвал
-def create_board(size):
-    return [[" " for _ in range(size)] for _ in range(size)]
+bot = telebot.TeleBot(BOT_TOKEN)
 
-# Намоиши ҷадвал бо emoji
-def render_board(board):
-    symbol_map = {"X": "❌", "O": "⭕", " ": "⬜"}
-    return "\n".join("".join(symbol_map[cell] for cell in row) for row in board)
-
-# Тугмаҳои inline барои ҷадвал
-def board_buttons(board, chat_id):
-    buttons = []
-    for i, row in enumerate(board):
-        btn_row = []
-        for j, cell in enumerate(row):
-            if cell == " ":
-                btn_row.append(InlineKeyboardButton("⬜", callback_data=f"{chat_id}:{i},{j}"))
-            else:
-                btn_row.append(InlineKeyboardButton(cell, callback_data="ignored"))
-        buttons.append(btn_row)
-    return InlineKeyboardMarkup(buttons)
-
-# Тугмаи профили админ
-def admin_button():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("Профили админ", url="tg://user?id=8377215874")]])
-
-# Тафтиши бурд
-def check_win(board, player):
-    size = len(board)
-    for i in range(size):
-        if all(board[i][j] == player for j in range(size)) or all(board[j][i] == player for j in range(size)):
-            return True
-    if all(board[i][i] == player for i in range(size)) or all(board[i][size-1-i] == player for i in range(size)):
-        return True
-    return False
-
-# Оғози бозӣ
-async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    msg = await update.message.reply_text(
-        "Бозӣ оғоз шуд! Ду бозингар лозим аст. Дар ҷавоб навбати худро интихоб кунед (X ва O)."
+# /start команда
+@bot.message_handler(commands=['start', 'help'])
+def send_welcome(message):
+    bot.reply_to(
+        message,
+        "🎵 Салом! Ман мусиқиро аз овоз, видео ё линкҳо мешиносам.\n"
+        "Фақат овоз ё линки TikTok / Instagram / YouTube фиристед 🎧"
     )
-    # Ҳолати аввал, ҳеҷ бозингар муайян нашудааст
-    games[chat_id] = {
-        "board": create_board(3),
-        "turn": "X",
-        "players": {},  # user_id: symbol
-        "message_id": msg.message_id
-    }
 
-# Callback барои click
-async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    if data == "ignored":
-        return
-
-    chat_id_str, pos = data.split(":")
-    chat_id = int(chat_id_str)
-    i, j = map(int, pos.split(","))
-
-    game = games.get(chat_id)
-    if not game:
-        await query.edit_message_text("Бозӣ ёфт нашуд. /game бозӣ кунед.")
-        return
-
-    user_id = query.from_user.id
-    # Таъини бозингар
-    if user_id not in game["players"]:
-        if len(game["players"]) >= 2:
-            await query.answer("Бозӣ барои ду бозингар аст!")
-            return
-        # Аввалин шахс X, дуюм O
-        symbol = "X" if "X" not in game["players"].values() else "O"
-        game["players"][user_id] = symbol
-
-    # Навбати дуруст
-    if game["players"][user_id] != game["turn"]:
-        await query.answer("Навбати шумо нест!")
-        return
-
-    board = game["board"]
-    turn = game["turn"]
-
-    if board[i][j] != " ":
-        return
-
-    board[i][j] = turn
-
-    # Тафтиши бурд
-    if check_win(board, turn):
-        await query.edit_message_text(
-            f"{render_board(board)}\n{turn} бурд! 🎉",
-            reply_markup=admin_button()
+# === ФУНКСИЯИ ЁРДАМӢ: ба AudD мефиристад ва натиҷа мегирад ===
+def recognize_music(file_path):
+    with open(file_path, 'rb') as f:
+        resp = requests.post(
+            'https://api.audd.io/',
+            data={'api_token': AUDD_API_TOKEN, 'return': 'apple_music,spotify,lyrics'},
+            files={'file': f}
         )
-        del games[chat_id]
+    data = resp.json()
+    if data.get("status") != "success" or not data.get("result"):
+        return None
+    r = data["result"]
+    text = f"🎵 <b>{r.get('title','?')}</b> — {r.get('artist','?')}"
+    if r.get("album"):
+        text += f"\n💿 Альбом: {r['album']}"
+    if r.get("release_date"):
+        text += f"\n📅 Санаи нашр: {r['release_date']}"
+    if r.get("spotify") and r["spotify"].get("external_urls"):
+        text += f"\n🎧 Spotify: {r['spotify']['external_urls'].get('spotify')}"
+    if r.get("apple_music") and r["apple_music"].get("url"):
+        text += f"\n🍎 Apple Music: {r['apple_music']['url']}"
+    if r.get("lyrics") and r["lyrics"].get("lyrics"):
+        lyr = r["lyrics"]["lyrics"][:400]
+        text += f"\n📝 Lyrics:\n{lyr}..."
+    return text
+
+# === ФУНКСИЯ: зеркашии видео ва гирифтани аудио аз линк ===
+def download_audio_from_url(url):
+    tmpdir = tempfile.mkdtemp()
+    out_path = os.path.join(tmpdir, "audio.%(ext)s")
+    opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': out_path,
+        'quiet': True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            # Табдил ба WAV
+            wav_path = os.path.join(tmpdir, "audio.wav")
+            subprocess.run(['ffmpeg', '-y', '-i', filename, '-ar', '44100', '-ac', '1', wav_path],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return wav_path
+    except Exception as e:
+        print("Error:", e)
+        return None
+
+# === ҲОЛАТ: агар паём линк бошад ===
+@bot.message_handler(func=lambda msg: 'http' in msg.text)
+def handle_link(message):
+    url = message.text.strip()
+    bot.reply_to(message, "🔎 Линк ёфт шуд, зеркашӣ ва таҳлил мешавад...")
+    audio_file = download_audio_from_url(url)
+    if not audio_file:
+        bot.send_message(message.chat.id, "❌ Натавонистам аудиоро аз ин линк гирам.")
         return
+    result = recognize_music(audio_file)
+    if result:
+        bot.send_message(message.chat.id, result, parse_mode='HTML')
+    else:
+        bot.send_message(message.chat.id, "❌ Мусиқӣ ёфт нашуд.")
 
-    # Тафтиши баробарӣ
-    if all(cell != " " for row in board for cell in row):
-        await query.edit_message_text(f"{render_board(board)}\nНатоиҷа баробар! 🤝",
-                                      reply_markup=admin_button())
-        del games[chat_id]
-        return
+# === ҲОЛАТ: агар паёми овозӣ ё аудио бошад ===
+@bot.message_handler(content_types=['voice', 'audio', 'video_note'])
+def handle_voice(message):
+    file_info = bot.get_file(message.voice.file_id if message.voice else message.audio.file_id)
+    downloaded = bot.download_file(file_info.file_path)
+    tmpdir = tempfile.mkdtemp()
+    ogg_path = os.path.join(tmpdir, "voice.ogg")
+    with open(ogg_path, 'wb') as f:
+        f.write(downloaded)
 
-    # Навбат
-    game["turn"] = "O" if turn == "X" else "X"
-    await query.edit_message_text(f"{render_board(board)}\nНавбати {game['turn']}",
-                                  reply_markup=board_buttons(board, chat_id))
+    wav_path = os.path.join(tmpdir, "voice.wav")
+    subprocess.run(['ffmpeg', '-y', '-i', ogg_path, '-ar', '44100', '-ac', '1', wav_path],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-# Команда барои оғоз
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Салом! /game барои оғоз кардани бозӣ дар гуруҳ"
-    )
+    bot.reply_to(message, "🎧 Шинохти мусиқӣ оғоз ёфт, лутфан интизор шавед...")
+    result = recognize_music(wav_path)
+    if result:
+        bot.send_message(message.chat.id, result, parse_mode='HTML')
+    else:
+        bot.send_message(message.chat.id, "❌ Мусиқӣ ёфт нашуд.")
 
-# Запуск
-if __name__ == "__main__":
-    TOKEN = "8238563485:AAHNLTZodPeXcl7YfjZqIqY6BpcPuP3QGXs"
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("game", start_game))
-    app.add_handler(CallbackQueryHandler(button_click))
-    print("Бот кор мекунад...")
-    app.run_polling()
+# === Иҷрои бот ===
+print("✅ Бот кор мекунад...")
+bot.infinity_polling()

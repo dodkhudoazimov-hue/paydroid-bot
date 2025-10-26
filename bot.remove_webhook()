@@ -1,110 +1,227 @@
-import telebot
-import os
-import subprocess
-import requests
-import yt_dlp
-import tempfile
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
+import asyncio, random, datetime
 
-BOT_TOKEN = "8238563485:AAHNLTZodPeXcl7YfjZqIqY6BpcPuP3QGXs"
-AUDD_API_TOKEN = "67bb96ec3f8a31cf3b9a73a4279fbb99"
+TOKEN = "8238563485:AAHNLTZodPeXcl7YfjZqIqY6BpcPuP3QGXs"
+ADMIN_IDS = [8377215874]
 
-bot = telebot.TeleBot(BOT_TOKEN)
+ITEMS = {
+    1: {"name": "Футболка Jazz", "price": 20, "desc": "Футболкаи сабук ва замонавӣ 🎵", "img": "tshirt.jpg"},
+    2: {"name": "Капс Jazz", "price": 12, "desc": "Капси услубӣ барои ҳар рӯз 🧢", "img": "cap.jpg"},
+    3: {"name": "Сумка Jazz", "price": 25, "desc": "Сумкаи боэътимод барои сафар 👜", "img": "bag.jpg"}
+}
 
-@bot.message_handler(commands=['start', 'help'])
-def start(message):
-    bot.reply_to(
-        message,
-        "🎵 Салом! Ман мусиқиро аз овоз, видео ё линкҳо мешиносам.\n"
-        "Фақат овоз ё линки TikTok / Instagram / YouTube фиристед 🎧"
-    )
+user_carts = {}
+user_wishlist = {}
+chat_sessions = {}
+orders = []
+all_users = set()
 
-def recognize_music(file_path):
-    with open(file_path, 'rb') as f:
-        r = requests.post(
-            'https://api.audd.io/',
-            data={'api_token': AUDD_API_TOKEN, 'return': 'apple_music,spotify,lyrics'},
-            files={'file': f}
-        )
-    data = r.json()
-    if data.get('status') != 'success' or not data.get('result'):
-        return None
-    result = data['result']
-    txt = f"🎵 <b>{result.get('title','?')}</b> — {result.get('artist','?')}"
-    if result.get('album'):
-        txt += f"\n💿 Альбом: {result['album']}"
-    if result.get('release_date'):
-        txt += f"\n📅 Сана: {result['release_date']}"
-    if result.get('spotify') and result['spotify'].get('external_urls'):
-        txt += f"\n🎧 Spotify: {result['spotify']['external_urls'].get('spotify')}"
-    if result.get('apple_music') and result['apple_music'].get('url'):
-        txt += f"\n🍎 Apple Music: {result['apple_music']['url']}"
-    if result.get('lyrics') and result['lyrics'].get('lyrics'):
-        lyr = result['lyrics']['lyrics'][:400]
-        txt += f"\n📝 Lyrics:\n{lyr}..."
-    return txt
+# ---------- Ёрдамчӣ ----------
+async def send_typing(chat, text):
+    await chat.send_chat_action("typing")
+    await asyncio.sleep(0.5)
+    await chat.send_message(text)
 
-def download_audio_from_url(url):
-    tmpdir = tempfile.mkdtemp()
-    opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': os.path.join(tmpdir, 'media.%(ext)s'),
-        'quiet': True,
-    }
-    filename = None
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-    except Exception as e:
-        print("yt-dlp error:", e)
-        return None
+# ---------- /start ----------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    all_users.add(user_id)
+    chat = update.message.chat
+    await send_typing(chat, "🎶 Хуш омадед ба **Jazz Store!**")
+    buttons = [
+        [InlineKeyboardButton("🛍 Каталог", callback_data="open_catalog"),
+         InlineKeyboardButton("❤️ Дилхоҳҳо", callback_data="open_wishlist")],
+        [InlineKeyboardButton("🛒 Сабад", callback_data="open_cart"),
+         InlineKeyboardButton("💬 Суҳбат бо админ", callback_data="chat_admin")],
+        [InlineKeyboardButton("ℹ Маълумот", callback_data="info")]
+    ]
+    if user_id in ADMIN_IDS:
+        buttons.append([
+            InlineKeyboardButton("👑 Панели админ", callback_data="admin_panel")
+        ])
+    await chat.send_message("Менюи асосӣ:", reply_markup=InlineKeyboardMarkup(buttons))
 
-    if not filename or not os.path.exists(filename):
-        return None
+# ---------- Каталог ----------
+async def catalog(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    # Маҳсулотҳоро нишон медиҳем, ҳар маҳсулот бо ду тугма дар як сатри ду тугма
+    for k, v in ITEMS.items():
+        with open(v["img"], "rb") as photo:
+            buttons = [[
+                InlineKeyboardButton("➕ Ба сабад", callback_data=f"add_{k}"),
+                InlineKeyboardButton("❤️ Дилхоҳ", callback_data=f"wish_{k}")
+            ]]
+            await query.message.reply_photo(photo=photo, caption=f"{v['name']} - ${v['price']}\n{v['desc']}", reply_markup=InlineKeyboardMarkup(buttons))
+    # Тугмаи бозгашт
+    back_buttons = [[InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main")]]
+    await query.message.reply_text("Бозгашт ба меню:", reply_markup=InlineKeyboardMarkup(back_buttons))
 
-    wav_path = os.path.join(tmpdir, 'audio.wav')
-    try:
-        subprocess.run(
-            ['ffmpeg', '-y', '-i', filename, '-ar', '44100', '-ac', '1', wav_path],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
-    except Exception as e:
-        print("ffmpeg error:", e)
-        return None
+# ---------- Ба сабад ----------
+async def add_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    item_id = int(query.data.split("_")[1])
+    user_id = query.from_user.id
+    user_carts.setdefault(user_id, {})
+    user_carts[user_id][item_id] = user_carts[user_id].get(item_id, 0) + 1
+    await query.message.reply_text(f"✅ {ITEMS[item_id]['name']} ба сабад илова шуд!")
 
-    return wav_path if os.path.exists(wav_path) else None
+# ---------- Ба дилхоҳ ----------
+async def add_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    item_id = int(query.data.split("_")[1])
+    user_id = query.from_user.id
+    user_wishlist.setdefault(user_id, set()).add(item_id)
+    await query.message.reply_text(f"💖 {ITEMS[item_id]['name']} ба рӯйхати дилхоҳҳо илова шуд!")
 
-@bot.message_handler(func=lambda msg: 'http' in msg.text)
-def handle_link(message):
-    url = message.text.strip()
-    msg = bot.reply_to(message, "🔎 Линк ёфт шуд, зеркашӣ ва таҳлил мешавад...")
-    audio_path = download_audio_from_url(url)
-    if not audio_path:
-        bot.send_message(message.chat.id, "❌ Натавонистам аудиоро аз линк гирам.")
+# ---------- Дилхоҳҳо ----------
+async def open_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    items = user_wishlist.get(user_id, set())
+    if not items:
+        await query.message.reply_text("❤️ Рӯйхати дилхоҳҳо холист.")
         return
-    result = recognize_music(audio_path)
-    if result:
-        bot.send_message(message.chat.id, result, parse_mode='HTML')
-    else:
-        bot.send_message(message.chat.id, "❌ Мусиқӣ ёфт нашуд.")
+    text = "❤️ Маҳсулоти дӯстдошта:\n"
+    for i in items:
+        text += f"- {ITEMS[i]['name']} (${ITEMS[i]['price']})\n"
+    # Тугмаҳои идоракунӣ дар ду сатри ду тугма
+    buttons = [[
+        InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main"),
+        InlineKeyboardButton("🛒 Ба сабад", callback_data="open_cart")
+    ]]
+    await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
-@bot.message_handler(content_types=['voice', 'audio'])
-def handle_voice(message):
-    file_info = bot.get_file(message.voice.file_id if message.voice else message.audio.file_id)
-    downloaded = bot.download_file(file_info.file_path)
-    tmpdir = tempfile.mkdtemp()
-    ogg_path = os.path.join(tmpdir, 'voice.ogg')
-    with open(ogg_path, 'wb') as f:
-        f.write(downloaded)
-    wav_path = os.path.join(tmpdir, 'voice.wav')
-    subprocess.run(['ffmpeg', '-y', '-i', ogg_path, '-ar', '44100', '-ac', '1', wav_path],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    bot.reply_to(message, "🎧 Шинохти мусиқӣ оғоз ёфт, лутфан интизор шавед...")
-    result = recognize_music(wav_path)
-    if result:
-        bot.send_message(message.chat.id, result, parse_mode='HTML')
-    else:
-        bot.send_message(message.chat.id, "❌ Мусиқӣ ёфт нашуд.")
+# ---------- Сабад ----------
+async def cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    cart = user_carts.get(user_id, {})
+    if not cart:
+        await query.message.reply_text("🛒 Сабад холист.")
+        return
+    text = "🛍 Маҳсулоти шумо:\n"
+    total = 0
+    for item_id, qty in cart.items():
+        subtotal = ITEMS[item_id]["price"] * qty
+        total += subtotal
+        text += f"- {ITEMS[item_id]['name']} x{qty} = ${subtotal}\n"
+    text += f"\n💰 Ҳамагӣ: ${total}"
+    buttons = [[
+        InlineKeyboardButton("📦 Фармоиш додан", callback_data="checkout"),
+        InlineKeyboardButton("🗑️ Тоза кардан", callback_data="clear_cart")
+    ],[
+        InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main")
+    ]]
+    await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
-print("✅ Бот фаъол шуд...")
-bot.infinity_polling()
+# ---------- Checkout ----------
+async def checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user = query.from_user
+    user_id = user.id
+    cart = user_carts.get(user_id, {})
+    if not cart:
+        await query.message.reply_text("🛒 Сабад холист.")
+        return
+    total = sum(ITEMS[i]["price"] * q for i, q in cart.items())
+    order_id = random.randint(10000, 99999)
+    order_data = {
+        "id": order_id,
+        "user": user.username or user.first_name,
+        "total": total,
+        "items": cart,
+        "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    orders.append(order_data)
+    for admin in ADMIN_IDS:
+        await context.bot.send_message(admin, f"📦 Фармоиши нав №{order_id} аз @{order_data['user']}\n💰 ${total}")
+    await query.message.reply_text(f"✅ Фармоиши шумо №{order_id} қабул шуд! 🙌")
+
+# ---------- Тоза кардани сабад ----------
+async def clear_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    user_carts[user_id] = {}
+    await query.message.reply_text("🧹 Сабад тоза шуд!")
+
+# ---------- Чат бо админ ----------
+async def chat_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user = query.from_user
+    chat_sessions[user.id] = True
+    for admin in ADMIN_IDS:
+        await context.bot.send_message(admin, f"💬 @{user.username or user.first_name} мехоҳад сӯҳбат кунад.")
+    buttons = [[
+        InlineKeyboardButton("🚫 Қатъ кардан", callback_data="stop_chat"),
+        InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main")
+    ]]
+    await query.message.reply_text("🗣 Ҳоло метавонед паём фиристед. Барои қатъ кардан, тугмаро истифода баред:", reply_markup=InlineKeyboardMarkup(buttons))
+
+# ---------- Relay паёмҳо ----------
+async def relay(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    text = update.message.text
+    if chat_sessions.get(user_id):
+        if text.lower() == "стоп":
+            chat_sessions[user_id] = False
+            await update.message.reply_text("🚫 Сӯҳбат қатъ шуд.")
+            return
+        for admin in ADMIN_IDS:
+            await context.bot.send_message(admin, f"👤 {update.message.from_user.first_name}: {text}")
+        return
+    if user_id in ADMIN_IDS and text.startswith("@"):
+        parts = text.split(" ", 1)
+        if len(parts) == 2:
+            msg = parts[1]
+            for u in chat_sessions.keys():
+                await context.bot.send_message(u, f"📩 Админ: {msg}")
+        return
+
+# ---------- Панели админ ----------
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    buttons = [
+        [InlineKeyboardButton("📦 Фармоишҳо", callback_data="admin_orders"),
+         InlineKeyboardButton("📊 Омори умумӣ", callback_data="admin_stats")],
+        [InlineKeyboardButton("📨 Паём ба ҳама", callback_data="admin_broadcast"),
+         InlineKeyboardButton("🧹 Поксозӣ", callback_data="admin_clear")],
+        [InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main")]
+    ]
+    await query.message.reply_text("👑 Панели админ:", reply_markup=InlineKeyboardMarkup(buttons))
+
+# ---------- Callback ----------
+async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = update.callback_query.data
+    if data == "open_catalog": await catalog(update, context)
+    elif data.startswith("add_"): await add_item(update, context)
+    elif data.startswith("wish_"): await add_wishlist(update, context)
+    elif data == "open_wishlist": await open_wishlist(update, context)
+    elif data == "open_cart": await cart(update, context)
+    elif data == "clear_cart": await clear_cart(update, context)
+    elif data == "checkout": await checkout(update, context)
+    elif data == "chat_admin": await chat_admin(update, context)
+    elif data == "stop_chat": 
+        chat_sessions[update.callback_query.from_user.id] = False
+        await update.callback_query.message.reply_text("🚫 Сӯҳбат қатъ шуд.")
+    elif data == "info": await update.callback_query.message.reply_text("ℹ Jazz Store — мағозаи расмии Jazz 🎷")
+    elif data == "admin_panel": await admin_panel(update, context)
+    elif data == "back_main": await start(update, context)
+
+# ---------- Сохтани бот ----------
+app = ApplicationBuilder().token(TOKEN).build()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CallbackQueryHandler(buttons))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, relay))
+
+print("✅ Jazz Store (ҳама тугмаҳо дар 2–3 сатр) омода аст!")
+app.run_polling()

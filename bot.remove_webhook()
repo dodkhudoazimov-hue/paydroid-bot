@@ -1,9 +1,10 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 import asyncio, random, datetime
 
 TOKEN = "8238563485:AAHNLTZodPeXcl7YfjZqIqY6BpcPuP3QGXs"
 ADMIN_IDS = [8377215874]
+ADMIN_USERNAME = "MARZ_X5"  # <== бе @ навис
 
 ITEMS = {
     1: {"name": "Футболка Jazz", "price": 20, "desc": "Футболкаи сабук ва замонавӣ 🎵", "img": "tshirt.jpg"},
@@ -11,10 +12,7 @@ ITEMS = {
     3: {"name": "Сумка Jazz", "price": 25, "desc": "Сумкаи боэътимод барои сафар 👜", "img": "bag.jpg"}
 }
 
-user_carts = {}
-user_wishlist = {}
-chat_sessions = {}
-orders = []
+user_carts, user_wishlist, orders = {}, {}, []
 all_users = set()
 
 # ---------- Ёрдамчӣ ----------
@@ -28,16 +26,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     all_users.add(user_id)
     chat = update.message.chat
+
     await send_typing(chat, "🎶 Хуш омадед ба **Jazz Store!**")
+
     buttons = [
-        [InlineKeyboardButton("🛍 Каталог", callback_data="open_catalog"),
-         InlineKeyboardButton("❤️ Дилхоҳҳо", callback_data="open_wishlist")],
-        [InlineKeyboardButton("🛒 Сабад", callback_data="open_cart"),
-         InlineKeyboardButton("💬 Суҳбат бо админ", callback_data="chat_admin")],
+        [
+            InlineKeyboardButton("🛍 Каталог", callback_data="open_catalog"),
+            InlineKeyboardButton("❤️ Дилхоҳҳо", callback_data="open_wishlist")
+        ],
+        [
+            InlineKeyboardButton("🛒 Сабад", callback_data="open_cart"),
+            InlineKeyboardButton("💬 Суҳбат бо админ", url=f"https://t.me/{ADMIN_USERNAME}")
+        ],
         [InlineKeyboardButton("ℹ Маълумот", callback_data="info")]
     ]
+
     if user_id in ADMIN_IDS:
         buttons.append([InlineKeyboardButton("👑 Панели админ", callback_data="admin_panel")])
+
     await chat.send_message("Менюи асосӣ:", reply_markup=InlineKeyboardMarkup(buttons))
 
 # ---------- Каталог ----------
@@ -50,9 +56,15 @@ async def catalog(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("➕ Ба сабад", callback_data=f"add_{k}"),
                 InlineKeyboardButton("❤️ Дилхоҳ", callback_data=f"wish_{k}")
             ]]
-            await query.message.reply_photo(photo=photo, caption=f"{v['name']} - ${v['price']}\n{v['desc']}", reply_markup=InlineKeyboardMarkup(buttons))
-    back_buttons = [[InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main")]]
-    await query.message.reply_text("Бозгашт ба меню:", reply_markup=InlineKeyboardMarkup(back_buttons))
+            await query.message.reply_photo(
+                photo=photo,
+                caption=f"{v['name']} - ${v['price']}\n{v['desc']}",
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
+    await query.message.reply_text(
+        "⬅️ Барои бозгашт ба меню зер кунед:",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main")]])
+    )
 
 # ---------- Ба сабад ----------
 async def add_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -73,24 +85,6 @@ async def add_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_wishlist.setdefault(user_id, set()).add(item_id)
     await query.message.reply_text(f"💖 {ITEMS[item_id]['name']} ба рӯйхати дилхоҳҳо илова шуд!")
 
-# ---------- Дилхоҳҳо ----------
-async def open_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    items = user_wishlist.get(user_id, set())
-    if not items:
-        await query.message.reply_text("❤️ Рӯйхати дилхоҳҳо холист.")
-        return
-    text = "❤️ Маҳсулоти дӯстдошта:\n"
-    for i in items:
-        text += f"- {ITEMS[i]['name']} (${ITEMS[i]['price']})\n"
-    buttons = [[
-        InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main"),
-        InlineKeyboardButton("🛒 Ба сабад", callback_data="open_cart")
-    ]]
-    await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-
 # ---------- Сабад ----------
 async def cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -107,12 +101,14 @@ async def cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total += subtotal
         text += f"- {ITEMS[item_id]['name']} x{qty} = ${subtotal}\n"
     text += f"\n💰 Ҳамагӣ: ${total}"
-    buttons = [[
-        InlineKeyboardButton("📦 Фармоиш додан", callback_data="checkout"),
-        InlineKeyboardButton("🗑️ Тоза кардан", callback_data="clear_cart")
-    ],[
-        InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main")
-    ]]
+
+    buttons = [
+        [
+            InlineKeyboardButton("📦 Фармоиш додан", callback_data="checkout"),
+            InlineKeyboardButton("🗑️ Тоза кардан", callback_data="clear_cart")
+        ],
+        [InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main")]
+    ]
     await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
 # ---------- Checkout ----------
@@ -125,82 +121,59 @@ async def checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not cart:
         await query.message.reply_text("🛒 Сабад холист.")
         return
+
     total = sum(ITEMS[i]["price"] * q for i, q in cart.items())
     order_id = random.randint(10000, 99999)
-    order_data = {
+    orders.append({
         "id": order_id,
         "user": user.username or user.first_name,
         "total": total,
-        "items": cart,
         "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    }
-    orders.append(order_data)
+    })
+
     for admin in ADMIN_IDS:
-        await context.bot.send_message(admin, f"📦 Фармоиши нав №{order_id} аз @{order_data['user']}\n💰 ${total}")
+        await context.bot.send_message(admin, f"📦 Фармоиши нав №{order_id} аз @{user.username}\n💰 ${total}")
+
     await query.message.reply_text(f"✅ Фармоиши шумо №{order_id} қабул шуд! 🙌")
 
 # ---------- Тоза кардани сабад ----------
 async def clear_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = query.from_user.id
-    user_carts[user_id] = {}
+    user_carts[query.from_user.id] = {}
     await query.message.reply_text("🧹 Сабад тоза шуд!")
 
-# ---------- Чат бо админ ----------
-async def chat_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user = query.from_user
-    chat_sessions[user.id] = True
-    for admin in ADMIN_IDS:
-        await context.bot.send_message(admin, f"💬 @{user.username or user.first_name} мехоҳад сӯҳбат кунад.")
-    buttons = [[
-        InlineKeyboardButton("🚫 Қатъ кардан", callback_data="stop_chat"),
-        InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main")
-    ]]
-    await query.message.reply_text("🗣 Ҳоло метавонед паём фиристед. Барои қатъ кардан, тугмаро истифода баред:", reply_markup=InlineKeyboardMarkup(buttons))
-
-# ---------- Relay паёмҳо ----------
+# ---------- Relay ----------
 async def relay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text
 
-    # Паёми аз корбар ба админ
-    if chat_sessions.get(user_id):
-        if text.lower() == "стоп":
-            chat_sessions[user_id] = False
-            await update.message.reply_text("🚫 Сӯҳбат қатъ шуд.")
-            return
-        for admin in ADMIN_IDS:
-            await context.bot.send_message(admin, f"👤 {update.message.from_user.first_name}: {text}")
+    # Паём ба ҳама
+    if user_id in ADMIN_IDS and context.user_data.get("broadcast_mode"):
+        sent = 0
+        for u in all_users:
+            try:
+                await context.bot.send_message(u, f"📢 Паёми админ:\n\n{text}")
+                sent += 1
+            except:
+                pass
+        context.user_data["broadcast_mode"] = False
+        await update.message.reply_text(f"✅ Паём ба {sent} корбар фиристода шуд.")
         return
-
-    # Паёми аз админ
-    if user_id in ADMIN_IDS:
-        if context.user_data.get("broadcast_mode"):
-            for u in all_users:
-                try:
-                    await context.bot.send_message(u, f"📢 Паёми админ:\n{text}")
-                except:
-                    pass
-            context.user_data["broadcast_mode"] = False
-            await update.message.reply_text("✅ Паём ба ҳама фиристода шуд.")
-            return
-
-        for uid, active in chat_sessions.items():
-            if active:
-                await context.bot.send_message(uid, f"📩 Админ: {text}")
 
 # ---------- Панели админ ----------
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     buttons = [
-        [InlineKeyboardButton("📦 Фармоишҳо", callback_data="admin_orders"),
-         InlineKeyboardButton("📊 Омори умумӣ", callback_data="admin_stats")],
-        [InlineKeyboardButton("📨 Паём ба ҳама", callback_data="admin_broadcast"),
-         InlineKeyboardButton("🧹 Поксозӣ", callback_data="admin_clear")],
+        [
+            InlineKeyboardButton("📦 Фармоишҳо", callback_data="admin_orders"),
+            InlineKeyboardButton("📊 Омори умумӣ", callback_data="admin_stats")
+        ],
+        [
+            InlineKeyboardButton("📨 Паём ба ҳама", callback_data="admin_broadcast"),
+            InlineKeyboardButton("🧹 Поксозӣ", callback_data="admin_clear")
+        ],
         [InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main")]
     ]
     await query.message.reply_text("👑 Панели админ:", reply_markup=InlineKeyboardMarkup(buttons))
@@ -212,35 +185,33 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
 
     buttons = [
-        [InlineKeyboardButton("🛍 Каталог", callback_data="open_catalog"),
-         InlineKeyboardButton("❤️ Дилхоҳҳо", callback_data="open_wishlist")],
-        [InlineKeyboardButton("🛒 Сабад", callback_data="open_cart"),
-         InlineKeyboardButton("💬 Суҳбат бо админ", callback_data="chat_admin")],
+        [
+            InlineKeyboardButton("🛍 Каталог", callback_data="open_catalog"),
+            InlineKeyboardButton("❤️ Дилхоҳҳо", callback_data="open_wishlist")
+        ],
+        [
+            InlineKeyboardButton("🛒 Сабад", callback_data="open_cart"),
+            InlineKeyboardButton("💬 Суҳбат бо админ", url=f"https://t.me/{ADMIN_USERNAME}")
+        ],
         [InlineKeyboardButton("ℹ Маълумот", callback_data="info")]
     ]
+
     if user_id in ADMIN_IDS:
         buttons.append([InlineKeyboardButton("👑 Панели админ", callback_data="admin_panel")])
 
-    try:
-        await query.message.edit_text("Менюи асосӣ:", reply_markup=InlineKeyboardMarkup(buttons))
-    except:
-        await query.message.reply_text("Менюи асосӣ:", reply_markup=InlineKeyboardMarkup(buttons))
+    await query.message.reply_text("Менюи асосӣ:", reply_markup=InlineKeyboardMarkup(buttons))
 
 # ---------- Callback ----------
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = update.callback_query.data
-
     if data == "open_catalog": await catalog(update, context)
     elif data.startswith("add_"): await add_item(update, context)
     elif data.startswith("wish_"): await add_wishlist(update, context)
-    elif data == "open_wishlist": await open_wishlist(update, context)
+    elif data == "open_wishlist":
+        await update.callback_query.message.reply_text("❤️ Рӯйхати дилхоҳҳо холист.")
     elif data == "open_cart": await cart(update, context)
     elif data == "clear_cart": await clear_cart(update, context)
     elif data == "checkout": await checkout(update, context)
-    elif data == "chat_admin": await chat_admin(update, context)
-    elif data == "stop_chat":
-        chat_sessions[update.callback_query.from_user.id] = False
-        await update.callback_query.message.reply_text("🚫 Сӯҳбат қатъ шуд.")
     elif data == "info":
         await update.callback_query.message.reply_text("ℹ Jazz Store — мағозаи расмии Jazz 🎷")
     elif data == "admin_panel": await admin_panel(update, context)
@@ -248,10 +219,8 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not orders:
             await update.callback_query.message.reply_text("📦 Ҳоло ягон фармоиш нест.")
         else:
-            text = "📦 Фармоишҳо:\n\n"
-            for o in orders:
-                text += f"№{o['id']} - @{o['user']} - ${o['total']} - {o['time']}\n"
-            await update.callback_query.message.reply_text(text)
+            text = "\n".join([f"№{o['id']} - @{o['user']} - ${o['total']} - {o['time']}" for o in orders])
+            await update.callback_query.message.reply_text(f"📦 Фармоишҳо:\n{text}")
     elif data == "admin_stats":
         await update.callback_query.message.reply_text(
             f"📊 Корбарон: {len(all_users)}\n🛍 Фармоишҳо: {len(orders)}"

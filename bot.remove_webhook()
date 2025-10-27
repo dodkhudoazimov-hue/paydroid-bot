@@ -46,7 +46,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def catalog(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    # Маҳсулотҳоро нишон медиҳем, ҳар маҳсулот бо ду тугма дар як сатри ду тугма
     for k, v in ITEMS.items():
         with open(v["img"], "rb") as photo:
             buttons = [[
@@ -54,7 +53,6 @@ async def catalog(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("❤️ Дилхоҳ", callback_data=f"wish_{k}")
             ]]
             await query.message.reply_photo(photo=photo, caption=f"{v['name']} - ${v['price']}\n{v['desc']}", reply_markup=InlineKeyboardMarkup(buttons))
-    # Тугмаи бозгашт
     back_buttons = [[InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main")]]
     await query.message.reply_text("Бозгашт ба меню:", reply_markup=InlineKeyboardMarkup(back_buttons))
 
@@ -89,7 +87,6 @@ async def open_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "❤️ Маҳсулоти дӯстдошта:\n"
     for i in items:
         text += f"- {ITEMS[i]['name']} (${ITEMS[i]['price']})\n"
-    # Тугмаҳои идоракунӣ дар ду сатри ду тугма
     buttons = [[
         InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main"),
         InlineKeyboardButton("🛒 Ба сабад", callback_data="open_cart")
@@ -199,6 +196,26 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.message.reply_text("👑 Панели админ:", reply_markup=InlineKeyboardMarkup(buttons))
 
+# ---------- Бозгашт ба меню ----------
+async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        user_id = query.from_user.id
+        chat = query.message.chat
+        buttons = [
+            [InlineKeyboardButton("🛍 Каталог", callback_data="open_catalog"),
+             InlineKeyboardButton("❤️ Дилхоҳҳо", callback_data="open_wishlist")],
+            [InlineKeyboardButton("🛒 Сабад", callback_data="open_cart"),
+             InlineKeyboardButton("💬 Суҳбат бо админ", callback_data="chat_admin")],
+            [InlineKeyboardButton("ℹ Маълумот", callback_data="info")]
+        ]
+        if user_id in ADMIN_IDS:
+            buttons.append([InlineKeyboardButton("👑 Панели админ", callback_data="admin_panel")])
+        await chat.send_message("Менюи асосӣ:", reply_markup=InlineKeyboardMarkup(buttons))
+    else:
+        await start(update, context)
+
 # ---------- Callback ----------
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = update.callback_query.data
@@ -210,12 +227,12 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "clear_cart": await clear_cart(update, context)
     elif data == "checkout": await checkout(update, context)
     elif data == "chat_admin": await chat_admin(update, context)
-    elif data == "stop_chat": 
+    elif data == "stop_chat":
         chat_sessions[update.callback_query.from_user.id] = False
         await update.callback_query.message.reply_text("🚫 Сӯҳбат қатъ шуд.")
     elif data == "info": await update.callback_query.message.reply_text("ℹ Jazz Store — мағозаи расмии Jazz 🎷")
     elif data == "admin_panel": await admin_panel(update, context)
-    elif data == "back_main": await start(update, context)
+    elif data == "back_main": await back_to_main(update, context)
 
 # ---------- Сохтани бот ----------
 app = ApplicationBuilder().token(TOKEN).build()

@@ -37,9 +37,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("ℹ Маълумот", callback_data="info")]
     ]
     if user_id in ADMIN_IDS:
-        buttons.append([
-            InlineKeyboardButton("👑 Панели админ", callback_data="admin_panel")
-        ])
+        buttons.append([InlineKeyboardButton("👑 Панели админ", callback_data="admin_panel")])
     await chat.send_message("Менюи асосӣ:", reply_markup=InlineKeyboardMarkup(buttons))
 
 # ---------- Каталог ----------
@@ -167,6 +165,8 @@ async def chat_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def relay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text
+
+    # Паёми аз корбар ба админ
     if chat_sessions.get(user_id):
         if text.lower() == "стоп":
             chat_sessions[user_id] = False
@@ -175,13 +175,22 @@ async def relay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for admin in ADMIN_IDS:
             await context.bot.send_message(admin, f"👤 {update.message.from_user.first_name}: {text}")
         return
-    if user_id in ADMIN_IDS and text.startswith("@"):
-        parts = text.split(" ", 1)
-        if len(parts) == 2:
-            msg = parts[1]
-            for u in chat_sessions.keys():
-                await context.bot.send_message(u, f"📩 Админ: {msg}")
-        return
+
+    # Паёми аз админ
+    if user_id in ADMIN_IDS:
+        if context.user_data.get("broadcast_mode"):
+            for u in all_users:
+                try:
+                    await context.bot.send_message(u, f"📢 Паёми админ:\n{text}")
+                except:
+                    pass
+            context.user_data["broadcast_mode"] = False
+            await update.message.reply_text("✅ Паём ба ҳама фиристода шуд.")
+            return
+
+        for uid, active in chat_sessions.items():
+            if active:
+                await context.bot.send_message(uid, f"📩 Админ: {text}")
 
 # ---------- Панели админ ----------
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -196,29 +205,31 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.message.reply_text("👑 Панели админ:", reply_markup=InlineKeyboardMarkup(buttons))
 
-# ---------- Бозгашт ба меню ----------
+# ---------- Бозгашт ----------
 async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.callback_query:
-        query = update.callback_query
-        await query.answer()
-        user_id = query.from_user.id
-        chat = query.message.chat
-        buttons = [
-            [InlineKeyboardButton("🛍 Каталог", callback_data="open_catalog"),
-             InlineKeyboardButton("❤️ Дилхоҳҳо", callback_data="open_wishlist")],
-            [InlineKeyboardButton("🛒 Сабад", callback_data="open_cart"),
-             InlineKeyboardButton("💬 Суҳбат бо админ", callback_data="chat_admin")],
-            [InlineKeyboardButton("ℹ Маълумот", callback_data="info")]
-        ]
-        if user_id in ADMIN_IDS:
-            buttons.append([InlineKeyboardButton("👑 Панели админ", callback_data="admin_panel")])
-        await chat.send_message("Менюи асосӣ:", reply_markup=InlineKeyboardMarkup(buttons))
-    else:
-        await start(update, context)
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    buttons = [
+        [InlineKeyboardButton("🛍 Каталог", callback_data="open_catalog"),
+         InlineKeyboardButton("❤️ Дилхоҳҳо", callback_data="open_wishlist")],
+        [InlineKeyboardButton("🛒 Сабад", callback_data="open_cart"),
+         InlineKeyboardButton("💬 Суҳбат бо админ", callback_data="chat_admin")],
+        [InlineKeyboardButton("ℹ Маълумот", callback_data="info")]
+    ]
+    if user_id in ADMIN_IDS:
+        buttons.append([InlineKeyboardButton("👑 Панели админ", callback_data="admin_panel")])
+
+    try:
+        await query.message.edit_text("Менюи асосӣ:", reply_markup=InlineKeyboardMarkup(buttons))
+    except:
+        await query.message.reply_text("Менюи асосӣ:", reply_markup=InlineKeyboardMarkup(buttons))
 
 # ---------- Callback ----------
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = update.callback_query.data
+
     if data == "open_catalog": await catalog(update, context)
     elif data.startswith("add_"): await add_item(update, context)
     elif data.startswith("wish_"): await add_wishlist(update, context)
@@ -230,8 +241,27 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "stop_chat":
         chat_sessions[update.callback_query.from_user.id] = False
         await update.callback_query.message.reply_text("🚫 Сӯҳбат қатъ шуд.")
-    elif data == "info": await update.callback_query.message.reply_text("ℹ Jazz Store — мағозаи расмии Jazz 🎷")
+    elif data == "info":
+        await update.callback_query.message.reply_text("ℹ Jazz Store — мағозаи расмии Jazz 🎷")
     elif data == "admin_panel": await admin_panel(update, context)
+    elif data == "admin_orders":
+        if not orders:
+            await update.callback_query.message.reply_text("📦 Ҳоло ягон фармоиш нест.")
+        else:
+            text = "📦 Фармоишҳо:\n\n"
+            for o in orders:
+                text += f"№{o['id']} - @{o['user']} - ${o['total']} - {o['time']}\n"
+            await update.callback_query.message.reply_text(text)
+    elif data == "admin_stats":
+        await update.callback_query.message.reply_text(
+            f"📊 Корбарон: {len(all_users)}\n🛍 Фармоишҳо: {len(orders)}"
+        )
+    elif data == "admin_clear":
+        orders.clear()
+        await update.callback_query.message.reply_text("🧹 Ҳамаи фармоишҳо пок шуданд.")
+    elif data == "admin_broadcast":
+        await update.callback_query.message.reply_text("📢 Паёми худро нависед барои фиристодан ба ҳама.")
+        context.user_data["broadcast_mode"] = True
     elif data == "back_main": await back_to_main(update, context)
 
 # ---------- Сохтани бот ----------
@@ -240,5 +270,5 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(CallbackQueryHandler(buttons))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, relay))
 
-print("✅ Jazz Store (ҳама тугмаҳо дар 2–3 сатр) омода аст!")
+print("✅ Jazz Store пурра фаъол шуд!")
 app.run_polling()

@@ -9,7 +9,7 @@ from telegram.ext import (
 )
 import asyncio, random, datetime
 
-# 🔒 TOKEN-ро худаш гузор
+# 🔒 TOKEN-ро худат гузор
 TOKEN = "8238563485:AAHNLTZodPeXcl7YfjZqIqY6BpcPuP3QGXs"
 
 ADMIN_IDS = [8377215874]
@@ -55,26 +55,42 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await chat.send_message("Менюи асосӣ:", reply_markup=InlineKeyboardMarkup(buttons))
 
 
-# ---------- Каталог ----------
+# ---------- Каталог (навшуда бо тугмаҳо) ----------
 async def catalog(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    for k, v in ITEMS.items():
-        try:
-            with open(v["img"], "rb") as photo:
-                buttons = [[
-                    InlineKeyboardButton("➕ Ба сабад", callback_data=f"add_{k}"),
-                    InlineKeyboardButton("❤️ Дилхоҳ", callback_data=f"wish_{k}"),
-                ]]
-                await query.message.reply_photo(
-                    photo=photo,
-                    caption=f"{v['name']} - ${v['price']}\n{v['desc']}",
-                    reply_markup=InlineKeyboardMarkup(buttons),
-                )
-        except FileNotFoundError:
-            await query.message.reply_text(f"⚠️ Акс барои {v['name']} ёфт нашуд.")
-    back_buttons = [[InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main")]]
-    await query.message.reply_text("Бозгашт ба меню:", reply_markup=InlineKeyboardMarkup(back_buttons))
+
+    # Рӯйхати маҳсулот
+    ITEMS_LIST = {
+        1: "Футболка Jazz",
+        2: "Капс Jazz",
+        3: "Сумка Jazz",
+        4: "Браслет Jazz",
+        5: "Кулоҳ Jazz",
+        6: "Ҷома Jazz",
+        7: "Поло Jazz",
+        8: "Нигоҳдорандаи калид Jazz",
+        9: "Кофта Jazz",
+        10: "Пойафзоли Jazz",
+    }
+
+    await query.message.reply_text("🛍 Каталоги маҳсулот:\n")
+
+    # Барои ҳар маҳсулот паём мефиристад бо ду тугма
+    for i, name in ITEMS_LIST.items():
+        buttons = [
+            [
+                InlineKeyboardButton("➕ Ба сабад", callback_data=f"add_{i}"),
+                InlineKeyboardButton("❤️ Дилхоҳ", callback_data=f"wish_{i}")
+            ]
+        ]
+        await query.message.reply_text(
+            f"{i}. {name}",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+
+    back_button = [[InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main")]]
+    await query.message.reply_text("Баргаштан ба меню:", reply_markup=InlineKeyboardMarkup(back_button))
 
 
 # ---------- Ба сабад ----------

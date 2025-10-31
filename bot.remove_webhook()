@@ -64,14 +64,70 @@ async def catalog(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query:
         await query.answer()
         message = query.message
+        chat_id = query.from_user.id
     else:
         message = update.message
+        chat_id = update.message.from_user.id
+
+    # ✅ Каталоги нав
+    ITEMS_LIST = {
+        1: {"name": "60 UC", "price": 10},
+        2: {"name": "325 UC", "price": 50},
+        3: {"name": "660 UC", "price": 100},
+        4: {"name": "1800 UC", "price": 250},
+        5: {"name": "3850 UC", "price": 500},
+        6: {"name": "8100 UC", "price": 1000},
+    }
+
+    # Тугмаҳо бо 3 сатр
+    buttons = [
+        [
+            InlineKeyboardButton("60 UC — 10 TJS", callback_data="select_1"),
+            InlineKeyboardButton("325 UC — 50 TJS", callback_data="select_2"),
+        ],
+        [
+            InlineKeyboardButton("660 UC — 100 TJS", callback_data="select_3"),
+            InlineKeyboardButton("1800 UC — 250 TJS", callback_data="select_4"),
+        ],
+        [
+            InlineKeyboardButton("3850 UC — 500 TJS", callback_data="select_5"),
+            InlineKeyboardButton("8100 UC — 1000 TJS", callback_data="select_6"),
+        ],
+        [InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main")],
+    ]
+
+    await message.reply_text("🛍 Каталоги UC:\nНархҳоро интихоб кунед 👇", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+# ---------- Ҳангоми интихоби маҳсулот ----------
+async def select_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    item_id = int(query.data.split("_")[1])
 
     ITEMS_LIST = {
-        1: "Футболка Jazz",
-        2: "Капс Jazz",
-        3: "Сумка Jazz",
+        1: {"name": "60 UC", "price": 10},
+        2: {"name": "325 UC", "price": 50},
+        3: {"name": "660 UC", "price": 100},
+        4: {"name": "1800 UC", "price": 250},
+        5: {"name": "3850 UC", "price": 500},
+        6: {"name": "8100 UC", "price": 1000},
     }
+
+    item = ITEMS_LIST[item_id]
+
+    buttons = [
+        [
+            InlineKeyboardButton("➕ Ба сабад", callback_data=f"add_{item_id}"),
+            InlineKeyboardButton("❤️ Дилхоҳ", callback_data=f"wish_{item_id}")
+        ],
+        [InlineKeyboardButton("⬅️ Бозгашт ба каталог", callback_data="open_catalog")],
+    ]
+
+    await query.message.reply_text(
+        f"📦 {item['name']}\n💰 Нарҳ: {item['price']} TJS",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
 
     await message.reply_text("🛍 Каталоги маҳсулот:\n")
 

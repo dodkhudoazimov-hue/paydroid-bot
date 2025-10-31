@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -42,8 +42,38 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     all_users.add(user_id)
     chat = update.message.chat
-    await send_typing(chat, "🎶 Хуш омадед ба Jazz Store!")
-    await show_main_menu(chat, user_id)
+
+    if user_id not in user_carts:
+        # Сабти ном бо рақами телефон
+        button = KeyboardButton("Ворид шудан бо рақами телефон", request_contact=True)
+        markup = ReplyKeyboardMarkup([[button]], one_time_keyboard=True, resize_keyboard=True)
+        await chat.send_message(
+            "🎶 Хуш омадед ба Jazz Store!\nЛутфан бо тугмаи зер ворид шавед:",
+            reply_markup=markup
+        )
+    else:
+        await send_typing(chat, "🎶 Хуш омадед боз!")
+        await show_main_menu(chat, user_id)
+
+# ---------- Қабули рақами телефон ----------
+async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    contact = update.message.contact
+    user_id = update.message.from_user.id
+
+    # Сабти маълумоти корбар
+    user_carts[user_id] = {"first_name": contact.first_name, "phone": contact.phone_number}
+    user_wishlist[user_id] = set()
+    all_users.add(user_id)
+
+    # Фиристодан ба админ
+    for admin in ADMIN_IDS:
+        await context.bot.send_message(
+            admin,
+            f"📌 Сабти нави корбар:\n👤 Ном: {contact.first_name}\n📞 Рақам: {contact.phone_number}"
+        )
+
+    await send_typing(update.message.chat, "✅ Шумо бо муваффақият ворид шудед!")
+    await show_main_menu(update.message.chat, user_id)
 
 # ---------- Менюи асосӣ ----------
 async def show_main_menu(chat, user_id):
@@ -66,7 +96,7 @@ async def show_main_menu(chat, user_id):
         reply_markup=InlineKeyboardMarkup(buttons),
         disable_notification=True
     )
-    user_menu_messages[user_id] = msg  # Нишони менюи доимӣ
+    user_menu_messages[user_id] = msg
 
 # ---------- Callback кнопкаҳо ----------
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -108,6 +138,12 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "admin_broadcast":
         await query.message.reply_text("📢 Паёми худро нависед барои фиристодан ба ҳама корбарон:")
         context.user_data["broadcast_mode"] = True
+    elif query.data == "admin_users":
+        text = "📋 Рӯйхати корбарон:\n\n"
+        for uid in all_users:
+            user = user_carts.get(uid, {})
+            text += f"👤 Ном: {user.get('first_name', '—')}, 📞 Рақам: {user.get('phone', '—')}\n"
+        await query.message.reply_text(text)
     elif query.data == "back_main":
         await back_to_main(user_id)
 
@@ -131,7 +167,7 @@ async def catalog(query, context):
     await query.message.edit_text("🛍 Каталоги UC:\nНархҳоро интихоб кунед 👇",
                                   reply_markup=InlineKeyboardMarkup(buttons))
 
-# ---------- Select Item ----------
+# ---------- Сабад ва Wishlist ----------
 async def add_item(query, context):
     item_id = int(query.data.split("_")[1])
     user_id = query.from_user.id
@@ -145,10 +181,9 @@ async def add_wishlist(query, context):
     user_wishlist.setdefault(user_id, set()).add(item_id)
     await query.message.reply_text(f"💖 {ITEMS[item_id]['name']} ба рӯйхати дилхоҳҳо илова шуд!")
 
-# ---------- Сабад ----------
 async def cart(query, context):
     user_id = query.from_user.id
-    cart = user_carts.get(user_id, {})
+    cart = {k:v for k,v in user_carts.get(user_id, {}).items() if k in ITEMS}
     if not cart:
         await query.message.reply_text("🛒 Сабад холист.")
         return
@@ -168,7 +203,6 @@ async def cart(query, context):
     ]
     await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
-# ---------- Wishlist ----------
 async def open_wishlist(query, context):
     user_id = query.from_user.id
     items = user_wishlist.get(user_id, set())
@@ -188,7 +222,7 @@ async def open_wishlist(query, context):
 async def checkout(query, context):
     user = query.from_user
     user_id = user.id
-    cart = user_carts.get(user_id, {})
+    cart = {k:v for k,v in user_carts.get(user_id, {}).items() if k in ITEMS}
     if not cart:
         await query.message.reply_text("🛒 Сабад холист.")
         return
@@ -205,9 +239,9 @@ async def checkout(query, context):
     for admin in ADMIN_IDS:
         await context.bot.send_message(admin, f"📦 Фармоиши нав №{order_id} аз @{order_data['user']}\n💰 ${total}")
     await query.message.reply_text(f"✅ Фармоиши шумо №{order_id} қабул шуд! 🙌")
-    user_carts[user_id] = {}
+    for item in cart:
+        user_carts[user_id].pop(item)
 
-# ---------- Clear Cart ----------
 async def clear_cart(query, context):
     user_id = query.from_user.id
     user_carts[user_id] = {}
@@ -223,6 +257,9 @@ async def admin_panel(query, context):
         [
             InlineKeyboardButton("📨 Паём ба ҳама", callback_data="admin_broadcast"),
             InlineKeyboardButton("🧹 Поксозӣ", callback_data="admin_clear"),
+        ],
+        [
+            InlineKeyboardButton("📋 Маълумоти корбарон", callback_data="admin_users")
         ],
         [InlineKeyboardButton("⬅️ Бозгашт", callback_data="back_main")],
     ]
@@ -301,6 +338,7 @@ def main():
     app.add_handler(CommandHandler("contact", contact_command))
     app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CallbackQueryHandler(buttons))
+    app.add_handler(MessageHandler(filters.CONTACT, contact_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, relay))
     print("✅ Jazz Store пурра фаъол шуд!")
     app.run_polling()
